@@ -4,7 +4,7 @@
 #define BLYNK_AUTH_TOKEN "eYT_u2rEpL9fWYCDu-CLNT_9f_Up4XK-"
 #define DHTTYPE DHT22
 #define DHTPIN D5 
-#define LINE_TOKEN "sSdnH6BngQ0iIIl13Eol1B7Vq1KCYOsXMkcqSqlHPGz"
+#define LINE_TOKEN "XgusLFhzr14nHeZuanKpTBJrnI6AdoHNtQvCgvoFiBi"
 
 #include "DHT.h"
 #include <Arduino.h>
@@ -51,7 +51,6 @@ void setup()
   pinMode(motionSensorPin, INPUT);
   pinMode(led,OUTPUT);
   pinMode(fan,OUTPUT);
-  digitalWrite(LED_BUILTIN,1);
   Serial.begin(9600);
   Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
   Blynk.virtualWrite(V4,mode);
@@ -74,7 +73,13 @@ void setup()
   myBH1750.setResolution(BH1750_CONTINUOUS_HIGH_RES_MODE_2); //call before "readLightLevel()", continuous measurement with 1.00 lux resolution
   sleepTimer = millis();
   sendLineNotificationValue("System On",1);
-  client.setInsecure();                            
+  Blynk.virtualWrite(V0, 0);  // สั่งให้ LED ปิด
+  digitalWrite(led, 0);
+  led_status = 0;
+  fan_status = 0;
+  digitalWrite(fan, 1);
+  Blynk.virtualWrite(V1, 0);
+  client.setInsecure();                     
 }
 
 void loop()
@@ -94,20 +99,21 @@ void loop()
         Serial.println("Motion detected! Starting sensor control.");
         pirState = HIGH;
         // เริ่มต้นการทำงานของเซ็นเซอร์ (LED, fan) เมื่อมีการเคลื่อนไหว
-        sendData(t,motionDetected,"SensorMode");
         sensorControl();  // เรียกฟังก์ชันสำหรับการควบคุมด้วยเซ็นเซอร์
+        sendData(t,motionDetected,"SensorMode");
       } 
       else if (motionDetected == LOW && pirState == HIGH) {
         Serial.println("No motion detected.");
-        pirState = LOW;
         Blynk.virtualWrite(V0, 0);  // สั่งให้ LED ปิด
         digitalWrite(led, 0);
+        digitalWrite(fan, 1);
+        Blynk.virtualWrite(V1, 0);
         led_status = 0;
         fan_status = 0;
-        digitalWrite(fan, 0);
-        Blynk.virtualWrite(V1, 0);
         sendLineNotificationValue("LED OFF", led_status);
         sendLineNotificationValue("Fan OFF", fan_status);
+        delay(3000);
+        pirState = LOW;
       }
     }
   }else if (mode == 1) {  // Voice Control Mode
@@ -120,7 +126,6 @@ void loop()
     else if(state == update) {
       Blynk.virtualWrite(V2, t);
       Blynk.virtualWrite(V3, h);
-      Serial.println("IN");
       sendData(t,0,"VoiceMode");
       delay(2000);
       state = wait;
@@ -128,42 +133,48 @@ void loop()
   }
 }
 void sensorControl() {
-  if(state == wait) {
-    state = sensor;
-  } else if (state == sensor) {
-    h = dht.readHumidity();
-    t = dht.readTemperature();
-    float lux = myBH1750.readLightLevel();
-    Serial.print("Light: ");
-    Serial.print(lux);
-    Serial.println(" lux");
-    Serial.print(F("Humidity: "));
-    Serial.print(h);
-    Serial.print(F("%  Temperature: "));
-    Serial.print(t);
-
-    if (lux < 50) {  // ควบคุม LED ด้วยเซ็นเซอร์แสง
-      Blynk.virtualWrite(V0, 1);  // สั่งให้ LED เปิด
-      digitalWrite(led, 1);
-      led_status = 1;
-      Serial.println("LED ON");
-      sendLineNotificationValue("LED ON", led_status);
-      state = update;
-    }
-    if (lux > 50) {  // ปิด LED ถ้าความสว่างเพียงพอ
-      Blynk.virtualWrite(V0, 0);  // สั่งให้ LED ปิด
-      digitalWrite(led, 0);
-      led_status = 0;
-      Serial.println("LED OFF");
-      sendLineNotificationValue("LED OFF", led_status);
-      state = update;
-    }
-  } else if (state == update) {
-    Blynk.virtualWrite(V2, t);  // ส่งค่าอุณหภูมิไปยัง Blynk
-    Blynk.virtualWrite(V3, h);  // ส่งค่าความชื้นไปยัง Blynk
-    delay(5000);
-    state = wait;
+  h = dht.readHumidity();
+  t = dht.readTemperature();
+  float lux = myBH1750.readLightLevel();
+  Serial.print("Light: ");
+  Serial.print(lux);
+  Serial.println(" lux");
+  Serial.print(F("Humidity: "));
+  Serial.print(h);
+  Serial.print(F("%  Temperature: "));
+  Serial.print(t);
+  sendLineNotificationValue("Lux",lux);
+  sendLineNotificationValue("Temp",t);
+  Blynk.virtualWrite(V2, t);  // ส่งค่าอุณหภูมิไปยัง Blynk
+  Blynk.virtualWrite(V3, h);  // ส่งค่าความชื้นไปยัง Blynk
+  if (lux < 200) {  // ควบคุม LED ด้วยเซ็นเซอร์แสง
+    Blynk.virtualWrite(V0, 1);  // สั่งให้ LED เปิด
+    digitalWrite(led, 1);
+    led_status = 1;
+    Serial.println("LED ON");
+    sendLineNotificationValue("LED ON", led_status);
   }
+  else if (lux > 200) {  // ปิด LED ถ้าความสว่างเพียงพอ
+    Blynk.virtualWrite(V0, 0);  // สั่งให้ LED ปิด
+    digitalWrite(led, 0);
+    led_status = 0;
+    Serial.println("LED OFF");
+    sendLineNotificationValue("LED OFF", led_status);
+  }if (t <= 31) {  // ควบคุม fan ด้วยเซ็นเซอร์แสง
+    Blynk.virtualWrite(V1, 0);  // สั่งให้ LED เปิด
+    digitalWrite(fan, 1);
+    fan_status = 0;
+    Serial.println("Fan OFF");
+    sendLineNotificationValue("Fan OFF", fan_status);
+  }
+  else if (t > 31) {  // ปิด fan ถ้าความสว่างเพียงพอ
+    Blynk.virtualWrite(V1, 1);  // สั่งให้ LED ปิด
+    digitalWrite(fan, 0);
+    fan_status = 1;
+    Serial.println("Fan ON");
+    sendLineNotificationValue("Fan ON", fan_status);
+  }
+  state = update;
 }
 BLYNK_WRITE(V0)  // ปุ่มเปิด/ปิด LED ผ่านเสียง
 {
@@ -187,12 +198,12 @@ BLYNK_WRITE(V1)  // ปุ่มเปิด/ปิดพัดลมผ่า�
   if (mode == 1) {
     int value = param.asInt();
     if (value == 1) {
-      digitalWrite(fan, 1);
+      digitalWrite(fan, 0);
       fan_status = 1;
       Serial.println("Voice: Fan ON");
       sendLineNotificationValue("Fan ON", fan_status);
     } else {
-      digitalWrite(fan, 0);
+      digitalWrite(fan, 1);
       fan_status = 0;
       Serial.println("Voice: Fan OFF");
       sendLineNotificationValue("Fan OFF", fan_status);
